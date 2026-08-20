@@ -1847,6 +1847,7 @@ _CLICK_SUBCOMMANDS: frozenset[str] = frozenset(
         "diagnose",
         "doctor",
         "goose",
+        "harnesses",
         "hermes",
         "host",
         "import",
@@ -4514,6 +4515,39 @@ def diagnose(server: str | None, json_output: bool) -> None:
     click.echo(f"auth    {snap['auth_source']} ({snap['auth_source_origin']})")
     click.echo(f"os      {snap['os']}")
     click.echo(f"python  {snap['python']}")
+
+
+@cli.command("harnesses")
+@click.option("--json", "json_output", is_flag=True, help="Emit machine-readable JSON.")
+def harnesses(json_output: bool) -> None:
+    """Print local harness readiness (binary + auth), one line per harness.
+
+    The authoritative availability check the platform itself uses — not a
+    PATH probe: a harness is READY only when its CLI resolves through the
+    Omnigent ladder AND its credential is present. Values: ``ready``,
+    ``binary-missing``, ``needs-auth``, ``version-too-low``, or
+    ``never-checked`` (no probe recorded yet). Scripts and agents (e.g. the
+    polly roster preflight) should route only to ``ready`` harnesses.
+    """
+    from omnigent.onboarding.harness_readiness import configured_harness_map
+
+    availability = configured_harness_map()
+
+    def _state(value: object) -> str:
+        if value is True:
+            return "ready"
+        if value is False:
+            return "binary-missing"
+        if isinstance(value, str):
+            return value
+        return "never-checked"
+
+    if json_output:
+        click.echo(json.dumps({name: _state(v) for name, v in sorted(availability.items())}, indent=2))
+        return
+    width = max((len(name) for name in availability), default=0)
+    for name, value in sorted(availability.items()):
+        click.echo(f"{name.ljust(width)}  {_state(value)}")
 
 
 @cli.command("doctor")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import io
 import logging
 import os
@@ -2471,6 +2473,72 @@ def test_expand_config_unresolved_var_raises(
 
 
 # ── _resolve_bundle_env_vars ─────────────────────────
+
+
+def test_harnesses_command_json_reports_authoritative_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`omnigent harnesses --json` maps availability to launchable states.
+
+    The polly roster preflight routes only to `ready` rows: an
+    installed-but-unauthenticated CLI must read `needs-auth` (not available),
+    and a missing binary `binary-missing` — the states a PATH-only
+    `command -v` probe could not distinguish (#4853).
+    """
+    from omnigent.onboarding import harness_readiness as hr
+
+    fake = {
+        "claude-native": True,
+        "codex-native": "needs-auth",
+        "opencode-native": False,
+        "cursor-native": "version-too-low",
+    }
+    monkeypatch.setattr(hr, "configured_harness_map", lambda: fake)
+    from click.testing import CliRunner
+
+    from omnigent.cli import cli
+
+    result = CliRunner().invoke(cli, ["harnesses", "--json"])
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    assert parsed["claude-native"] == "ready"
+    assert parsed["codex-native"] == "needs-auth"
+    assert parsed["opencode-native"] == "binary-missing"
+    assert parsed["cursor-native"] == "version-too-low"
+
+
+def test_harnesses_command_human_output_lists_every_harness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from omnigent.onboarding import harness_readiness as hr
+
+    fake = {"claude-native": True, "codex-native": "needs-auth"}
+    monkeypatch.setattr(hr, "configured_harness_map", lambda: fake)
+    from click.testing import CliRunner
+
+    from omnigent.cli import cli
+
+    result = CliRunner().invoke(cli, ["harnesses"])
+    assert result.exit_code == 0, result.output
+    assert "claude-native" in result.output
+    assert "ready" in result.output
+    assert "needs-auth" in result.output
+
+
+def test_polly_preflight_uses_authoritative_readiness_not_path_probe() -> None:
+    """The polly roster preflight consults harness readiness, not `command -v`.
+
+    A PATH probe marks installed-but-unauthenticated workers available and
+    misses binaries the Omnigent resolver finds off PATH (#4853).
+    """
+    from pathlib import Path
+
+    config = (
+        Path(__file__).resolve().parents[2] / "examples" / "polly" / "config.yaml"
+    ).read_text(encoding="utf-8")
+    assert "command -v" not in config, "the PATH-only probe must be gone"
+    assert "omnigent harnesses --json" in config
+    assert '"ready"' in config
 
 
 def test_resolve_bundle_expands_config_yaml(

@@ -71,21 +71,25 @@ prompt: |
   Extra vendors widen cross-vendor review (any implementer's diff can be judged
   by a DIFFERENT vendor). Route to whichever workers the preflight finds.
 
-  Roster preflight (FIRST turn, before any dispatch). Each worker needs its own
-  CLI on PATH — `claude` for `claude_code`, `codex` for `codex`, `opencode` for
-  `opencode`, `cursor-agent` for `cursor`, `hermes` for `hermes`, `pi` for `pi`,
-  `agy` for `agy`.
+  Roster preflight (FIRST turn, before any dispatch). Worker availability is
+  AUTHORITATIVE harness readiness — binary AND credential — not a PATH probe:
+  an installed-but-unauthenticated CLI must not receive work, and a CLI the
+  Omnigent resolver finds off PATH is still usable.
   Before delegating anything, run exactly ONE
-  `sys_os_shell("command -v claude codex opencode cursor-agent hermes pi agy || true")`. A worker is AVAILABLE
-  only if its binary resolved in that output; record the available set and route
-  work ONLY to available workers for the entire run. Do this in the same first
-  turn you start planning (the preflight `sys_os_shell` call counts as acting —
-  don't end the turn on the preflight alone). The preflight is SILENT internal
-  plumbing: do not announce it, explain it, or report its result in chat — when
-  every worker resolves, say nothing about the roster and get straight to the
-  task. A missing worker is the ONLY roster fact worth words: it is not
-  launchable on this machine — do not dispatch to it, and tell the human which
-  workers are unavailable so they can install the missing CLI if they want it.
+  `sys_os_shell("omnigent harnesses --json || true")`. A worker is AVAILABLE
+  only if its harness row reads `"ready"` in that output: `claude-native` for
+  `claude_code`, `codex-native` for `codex`, `opencode-native` for
+  `opencode`, `cursor-native` for `cursor`, `hermes-native` for `hermes`,
+  `pi` for `pi`, `antigravity-native` for `agy`. Record the available set and
+  route work ONLY to available workers for the entire run. Do this in the same
+  first turn you start planning (the preflight `sys_os_shell` call counts as
+  acting — don't end the turn on the preflight alone). The preflight is SILENT
+  internal plumbing: do not announce it, explain it, or report its result in
+  chat — when every worker is ready, say nothing about the roster and get
+  straight to the task. An unavailable worker is the ONLY roster fact worth
+  words: it is not launchable on this machine — do not dispatch to it, and
+  tell the human which workers are unavailable (and whether the reason was a
+  missing binary or missing authentication) so they can fix it if they want it.
 
   Every dispatch may carry an explicit `args.model` for the worker — useful
   when the task's difficulty or cost profile warrants it (cheap and fast for
