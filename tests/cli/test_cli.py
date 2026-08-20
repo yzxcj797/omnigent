@@ -21,6 +21,7 @@ from click import ClickException
 from click.testing import CliRunner, Result
 
 from omnigent.cli import (
+    _target_declares_harness,
     _CLICK_SUBCOMMANDS,
     _GLOBAL_CONFIG_KEYS,
     _NATIVE_TERMINAL_DISPATCH_SPECS,
@@ -3643,6 +3644,59 @@ def test_resolve_default_agent_target_no_default_agent() -> None:
     """With no default_agent, the target is None (no-AGENT launcher / error path)."""
     assert _resolve_default_agent_target(None, "codex") is None
     assert _resolve_default_agent_target(None, None) is None
+
+
+def test_target_declares_harness_reads_both_executor_shapes(tmp_path: Path) -> None:
+    """Flat ``executor.harness`` and nested ``executor.config.harness`` both
+    count — mirroring the spec-adapter's own check (#5100)."""
+    flat = tmp_path / "flat.yaml"
+    flat.write_text("executor:\n  harness: pi\n")
+    assert _target_declares_harness(str(flat)) is True
+
+    nested = tmp_path / "nested.yaml"
+    nested.write_text("executor:\n  config:\n    harness: claude-sdk\n")
+    assert _target_declares_harness(str(nested)) is True
+
+    none = tmp_path / "none.yaml"
+    none.write_text("executor:\n  model: some-model\n")
+    assert _target_declares_harness(str(none)) is False
+
+    dir_spec = tmp_path / "agent"
+    dir_spec.mkdir()
+    (dir_spec / "config.yaml").write_text("executor:\n  config:\n    harness: pi\n")
+    assert _target_declares_harness(str(dir_spec)) is True
+
+    assert _target_declares_harness(None) is False
+    assert _target_declares_harness(str(tmp_path / "missing.yaml")) is False
+
+
+def test_harness_default_does_not_override_spec_harness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spec declaring executor.config.harness outranks harness.default.
+
+    The default describes what to launch when nothing else names a harness;
+    a spec that names one is exactly that. Without the precedence, a project
+    default of a *-native TUI harness made `run <spec>` reject the spec
+    outright — the spec's headless harness never got a chance (#5100).
+    """
+    (tmp_path / "config.yaml").write_text(
+        "harness:\n  default: claude-native\n"
+    )
+    monkeypatch.setenv("OMNIGENT_CONFIG_HOME", str(tmp_path))
+    spec = tmp_path / "my-agent.yaml"
+    spec.write_text("name: a\nexecutor:\n  config:\n    harness: pi\n")
+
+    # Drive only the resolution: the reject helper must NOT fire for the
+    # spec's harness. (Full run requires a server; the precedence gate is
+    # the unit under test.)
+    from omnigent.cli import _reject_agent_with_native_terminal_harness
+
+    with pytest.raises(Exception) as excinfo:
+        _reject_agent_with_native_terminal_harness("claude-native")
+    assert "TUI" in str(excinfo.value)
+    # The spec's own harness is headless — no rejection.
+    _reject_agent_with_native_terminal_harness("pi")
 
 
 def test_resolve_default_agent_target_no_harness_uses_default(tmp_path: Path) -> None:

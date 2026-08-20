@@ -7008,6 +7008,43 @@ def _smart_routing_decision(*, server: str, harness: str) -> ArmedSession:
     return armed
 
 
+def _target_declares_harness(target: str | None) -> bool:
+    """Whether the AGENT target's spec names its own executor harness.
+
+    Reads both shapes — the flat ``executor.harness`` and the bundle-style
+    nested ``executor.config.harness`` — mirroring the spec-adapter's own
+    check (:func:`omnigent.chat._spec_declares_harness_or_model`'s harness
+    half). Used by ``run`` to decide whether the configured
+    ``harness.default`` should apply: a spec that names a harness outranks
+    the default (#5100).
+
+    :param target: The AGENT path passed to ``run`` (file or directory),
+        or ``None`` when there is no AGENT.
+    :returns: ``True`` when the spec's executor declares a harness.
+    """
+    if target is None:
+        return False
+    import yaml as _yaml
+
+    path = Path(target)
+    config_path = path / "config.yaml" if path.is_dir() else path
+    try:
+        raw = _yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, _yaml.YAMLError):
+        return False
+    if not isinstance(raw, dict):
+        return False
+    executor = raw.get("executor")
+    if not isinstance(executor, dict):
+        return False
+    if isinstance(executor.get("harness"), str) and executor["harness"].strip():
+        return True
+    config = executor.get("config")
+    return isinstance(config, dict) and isinstance(config.get("harness"), str) and bool(
+        config["harness"].strip()
+    )
+
+
 def _reject_agent_with_native_terminal_harness(harness: str) -> None:
     """
     Reject ``run AGENT --harness <x>-native``: native harnesses own their TUI.
@@ -7686,7 +7723,14 @@ def run(
         from omnigent.harness_startup_config import resolve_harness_config
 
         harness_default, _ = resolve_harness_config(_global_cfg)
-        harness = harness_default
+        # An AGENT spec's own executor harness outranks the configured
+        # default: the default describes what to launch when NOTHING else
+        # names a harness, and a spec that declares `executor.config.harness`
+        # (or the flat `executor.harness`) names one. Without this, a project
+        # default of a *-native TUI harness made `run <spec>` reject the spec
+        # outright — the spec's headless harness never got a chance (#5100).
+        if not (harness_default is not None and target is not None and _target_declares_harness(target)):
+            harness = harness_default
 
     # First-run smart defaults: a bare `run` with no AGENT, no --harness, and no
     # explicit persisted default → derive a harness from the *current* creds
