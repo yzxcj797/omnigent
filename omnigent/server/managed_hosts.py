@@ -180,6 +180,7 @@ SUPPORTED_SANDBOX_PROVIDERS: frozenset[str] = frozenset(
         "e2b",
         "openshell",
         "kubernetes",
+        "coda",
     }
 )
 PROVIDERS_WITH_MANAGED_LAUNCH: frozenset[str] = frozenset(
@@ -193,6 +194,7 @@ PROVIDERS_WITH_MANAGED_LAUNCH: frozenset[str] = frozenset(
         "e2b",
         "openshell",
         "kubernetes",
+        "coda",
     }
 )
 
@@ -211,6 +213,10 @@ _ONLINE_POLL_INTERVAL_S = 1.0
 # Deployments injecting their own launcher choose their own TTL on
 # ManagedSandboxConfig.
 MODAL_MANAGED_TOKEN_TTL_S = 25 * 3600
+# CoDA leases sit on an operator-provisioned Databricks App; 13h covers a
+# working day before the lease must be re-acquired (matches the registry's
+# coda managed_token_ttl_s).
+CODA_MANAGED_TOKEN_TTL_S = 13 * 3600
 
 # Launch-token lifetime for the YAML daytona path. Daytona sandboxes
 # have no platform lifetime cap (idle auto-stop is disabled at
@@ -811,6 +817,34 @@ def parse_repo_workspace(workspace: str) -> RepoWorkspace:
     return RepoWorkspace(url=url, branch=branch, repo_name=_derive_repo_name(url))
 
 
+def _coda_launcher_factory(
+    *,
+    app_name: str,
+    app_url: str,
+    workspace_path: str | None,
+) -> Callable[[], SandboxHostLauncher]:
+    """
+    Build the launcher factory for the YAML ``provider: coda`` path.
+
+    :param app_name: Name of the pre-provisioned CoDA Databricks App.
+    :param app_url: Public URL of the App's control plane.
+    :param workspace_path: Optional workspace path override; ``None`` uses
+        the provider's CoDA default.
+    :returns: A factory producing CoDA lease launchers.
+    """
+
+    def _build() -> SandboxHostLauncher:
+        from omnigent.onboarding.sandboxes.coda import CODA_WORKSPACE_PATH, CodaProvider
+
+        return CodaProvider(
+            app_name=app_name,
+            app_url=app_url,
+            workspace_path=workspace_path or CODA_WORKSPACE_PATH,
+        )
+
+    return _build
+
+
 def _modal_launcher_factory(
     image: str | None,
     secrets: list[str] | None,
@@ -1139,6 +1173,29 @@ def _parse_single_provider_sandbox_config(raw: dict[str, object]) -> ManagedSand
         # outlives the (operator-overridable) sandbox lifetime — mirrors
         # the cwsandbox path.
         token_ttl_s = managed_token_ttl_s()
+    elif provider == "coda":
+        section = _parse_provider_section(raw, "coda")
+        if section is not None:
+            _reject_unknown_keys(section, {"app_name", "app_url", "workspace_path"}, "sandbox.coda")
+        app_name = _parse_provider_string(raw, "coda", "app_name")
+        if not app_name or not app_name.strip():
+            raise ValueError(
+                "server config 'sandbox.coda.app_name' is required — the name of "
+                "the pre-provisioned CoDA Databricks App to lease"
+            )
+        app_url = _parse_provider_string(raw, "coda", "app_url")
+        if not app_url or not app_url.strip():
+            raise ValueError(
+                "server config 'sandbox.coda.app_url' is required — the public "
+                "URL of the CoDA App's control plane"
+            )
+        workspace_path = _parse_provider_string(raw, "coda", "workspace_path")
+        launcher_factory = _coda_launcher_factory(
+            app_name=app_name.strip(),
+            app_url=app_url.strip(),
+            workspace_path=workspace_path,
+        )
+        token_ttl_s = CODA_MANAGED_TOKEN_TTL_S
     elif provider == "openshell":
         launcher_factory = _openshell_launcher_factory(
             image=_parse_provider_image(raw, "openshell"),

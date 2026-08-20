@@ -135,6 +135,73 @@ class _StubAgentStore:
 # ── parse_sandbox_config ────────────────────────────────────
 
 
+def test_parse_sandbox_config_coda_valid() -> None:
+    """A complete sandbox.coda block parses to a coda launcher factory."""
+    deployment = parse_sandbox_config(
+        {
+            "provider": "coda",
+            "server_url": "https://omnigent.example.com",
+            "coda": {
+                "app_name": "coda-main",
+                "app_url": "https://coda-main.databricksapps.com",
+            },
+        }
+    )
+    config = deployment.configs[0] if hasattr(deployment, "configs") else deployment.config
+    assert config.provider == "coda"
+
+
+def test_parse_sandbox_config_coda_missing_required_keys() -> None:
+    """Incomplete CoDA config fails clearly at startup, not at first launch."""
+    with pytest.raises(ValueError, match="sandbox.coda.app_name' is required"):
+        parse_sandbox_config(
+            {
+                "provider": "coda",
+                "server_url": "https://omnigent.example.com",
+                "coda": {"app_url": "https://coda-main.databricksapps.com"},
+            }
+        )
+    with pytest.raises(ValueError, match="sandbox.coda.app_url' is required"):
+        parse_sandbox_config(
+            {
+                "provider": "coda",
+                "server_url": "https://omnigent.example.com",
+                "coda": {"app_name": "coda-main"},
+            }
+        )
+
+
+def test_parse_sandbox_config_coda_rejects_unknown_keys() -> None:
+    with pytest.raises(ValueError, match="sandbox.coda"):
+        parse_sandbox_config(
+            {
+                "provider": "coda",
+                "server_url": "https://omnigent.example.com",
+                "coda": {
+                    "app_name": "coda-main",
+                    "app_url": "https://coda-main.databricksapps.com",
+                    "image": "docker.io/nope:latest",
+                },
+            }
+        )
+
+
+def test_parse_sandbox_config_coda_workspace_override_accepted() -> None:
+    deployment = parse_sandbox_config(
+        {
+            "provider": "coda",
+            "server_url": "https://omnigent.example.com",
+            "coda": {
+                "app_name": "coda-main",
+                "app_url": "https://coda-main.databricksapps.com",
+                "workspace_path": "/workspace",
+            },
+        }
+    )
+    config = deployment.configs[0] if hasattr(deployment, "configs") else deployment.config
+    assert config.provider == "coda"
+
+
 def test_parse_absent_section_disables_managed_hosts() -> None:
     """No ``sandbox:`` section → managed hosts simply not configured."""
     assert parse_sandbox_config(None) is None
