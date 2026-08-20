@@ -9798,11 +9798,22 @@ def _build_spawn_env_from_spec(
     # identifies the Databricks target.
     if env is not None:
         prefix = f"HARNESS_{harness.upper().replace('-', '_')}"
+        # The generic-provider path writes the gateway URLs to the plural
+        # ``<HARNESS>_GATEWAY_BASE_URLS`` (a JSON object, pi's family naming)
+        # and never sets the singular key — reading only the singular made
+        # the log claim base_url=None on exactly the path where a gateway WAS
+        # resolved (#5102). Prefer whichever key is present.
+        base_urls_raw = env.get(f"{prefix}_GATEWAY_BASE_URLS")
+        logged_base_url = (
+            env.get(f"{prefix}_GATEWAY_BASE_URL")
+            if base_urls_raw is None
+            else f"base_urls={base_urls_raw}"
+        )
         _logger.info(
             "%s gateway routing: gateway=%s base_url=%s profile=%s model=%s",
             harness,
             env.get(f"{prefix}_GATEWAY"),
-            env.get(f"{prefix}_GATEWAY_BASE_URL"),
+            logged_base_url,
             env.get(f"{prefix}_DATABRICKS_PROFILE"),
             env.get(_HARNESS_MODEL_ENV_KEY.get(harness, f"{prefix}_MODEL")),
         )

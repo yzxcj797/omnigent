@@ -1412,6 +1412,54 @@ async def test_runner_stream_emits_failed_when_tool_spec_resolver_fails() -> Non
     assert "stream spec resolver unavailable for ag_stream" not in response.text
 
 
+def test_build_spawn_env_logs_pi_base_urls_on_generic_provider_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The gateway-routing log names the URLs the generic-provider path set.
+
+    That path writes ``HARNESS_PI_GATEWAY_BASE_URLS`` (plural, a JSON
+    object) and never sets the singular key the log used to read — so the
+    log claimed ``base_url=None`` on exactly the path where a gateway WAS
+    resolved, reading as "no gateway" while debugging a gateway problem
+    (#5102).
+    """
+    import logging as _logging
+
+    monkeypatch.setenv("OMNIGENT_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("OMNIGENT_DISABLE_KEYRING", "1")
+    (tmp_path / "config.yaml").write_text(
+        "providers:\n"
+        "  vendor-openai:\n"
+        "    kind: key\n"
+        "    default: true\n"
+        "    openai:\n"
+        "      base_url: https://gw.example.com/v1\n"
+        "      api_key: sk-test\n"
+        "      models:\n"
+        "        default: gpt-test-default\n"
+    )
+    spec = AgentSpec(
+        spec_version=1,
+        name="x",
+        executor=ExecutorSpec(type="omnigent", config={"harness": "pi"}),
+    )
+
+    with caplog.at_level(_logging.INFO, logger="omnigent.runner.app"):
+        env = _build_spawn_env_from_spec(spec, "pi")
+
+    assert env is not None
+    assert "HARNESS_PI_GATEWAY_BASE_URLS" in env, "fixture must take the generic-provider path"
+    routing_logs = [r for r in caplog.records if "gateway routing" in r.message]
+    assert routing_logs, "the routing line must be logged"
+    message = routing_logs[-1].getMessage()
+    assert "base_url=None" not in message, (
+        "the plural-key path must not log base_url=None while a gateway was resolved"
+    )
+    assert "https://gw.example.com/v1" in message
+
+
 def test_build_spawn_env_applies_model_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
