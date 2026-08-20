@@ -314,12 +314,16 @@ def claude_host_skills(ctx: SkillSourceContext) -> list[SkillSpec]:
 
 def codex_host_skills(ctx: SkillSourceContext) -> list[SkillSpec]:
     """
-    Codex skills: ``<bundle>/skills`` + ``~/.codex/skills`` under the filter.
+    Codex skills: ``<bundle>/skills`` + ``~/.codex/skills`` + the shared
+    ``~/.agents/skills`` tree, under the filter.
 
     Reuses the Codex executor's own helpers — ``codex_skill_sources`` (the
     shared source-list builder) and ``select_codex_skill_dirs`` (the shared
     selector) — so the menu draws from the same roots and selection the
-    executor symlinks into ``$CODEX_HOME/skills/``. The menu is the subset of
+    executor symlinks into ``$CODEX_HOME/skills/``. The source list carries
+    the vendor-neutral shared tree ``~/.agents/skills`` (#5105): a skill
+    there is both selectable in the menu AND symlinked into the session,
+    matching the docs' "every agent" claim for the codex family. The menu is the subset of
     that selection whose ``SKILL.md`` parses: the executor links by existence,
     so a present-but-unparseable skill is linked but not shown (correct — Codex
     won't register a malformed skill as a command either).

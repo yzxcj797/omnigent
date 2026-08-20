@@ -3275,6 +3275,51 @@ def test_select_codex_skill_dirs_none_and_list(tmp_path: Path) -> None:
     assert set(select_codex_skill_dirs(["x"], [a])) == {"x"}
 
 
+def test_codex_skill_sources_appends_shared_agents_tree(tmp_path: Path) -> None:
+    """``~/.agents/skills`` is the lowest-priority Codex skill source.
+
+    The docs promise the shared tree reaches "every agent"; codex-native
+    sessions never saw it — the source list stopped at ``~/.codex/skills``,
+    so the symlink populator and the slash menu both missed it (#5105).
+    """
+    from omnigent.inner.codex_executor import codex_skill_sources, select_codex_skill_dirs
+
+    bundle = tmp_path / "bundle"
+    (bundle / "skills").mkdir(parents=True)
+    home = tmp_path / "home"
+    (home / ".codex" / "skills").mkdir(parents=True)
+    shared = home / ".agents" / "skills"
+    shared.mkdir(parents=True)
+
+    assert codex_skill_sources(bundle, home) == [
+        bundle / "skills",
+        home / ".codex" / "skills",
+        shared,
+    ]
+
+    # Shadowing: the .codex copy of a same-named skill wins over the shared
+    # one, and a shared-only skill is selectable.
+    (home / ".codex" / "skills" / "dup").mkdir()
+    (home / ".codex" / "skills" / "dup" / "SKILL.md").write_text("codex", encoding="utf-8")
+    (shared / "dup").mkdir()
+    (shared / "dup" / "SKILL.md").write_text("shared", encoding="utf-8")
+    (shared / "only-shared").mkdir()
+    (shared / "only-shared" / "SKILL.md").write_text("shared", encoding="utf-8")
+
+    selected = select_codex_skill_dirs("all", codex_skill_sources(bundle, home))
+    assert selected["dup"] == home / ".codex" / "skills" / "dup"
+    assert selected["only-shared"] == shared / "only-shared"
+
+
+def test_codex_skill_sources_shared_tree_absent_is_omitted(tmp_path: Path) -> None:
+    """No ``~/.agents/skills`` on the host → the source list is unchanged."""
+    from omnigent.inner.codex_executor import codex_skill_sources
+
+    home = tmp_path / "home"
+    (home / ".codex" / "skills").mkdir(parents=True)
+    assert codex_skill_sources(None, home) == [home / ".codex" / "skills"]
+
+
 def test_codex_skill_sources_order_bundle_then_host(tmp_path: Path) -> None:
     """codex_skill_sources lists <bundle>/skills before <home>/.codex/skills."""
     from omnigent.inner.codex_executor import codex_skill_sources

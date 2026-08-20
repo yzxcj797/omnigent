@@ -446,7 +446,11 @@ def codex_skill_sources(bundle_dir: Path | None, home: Path) -> list[Path]:
     provider — so the linked set and the menu cannot drift on which roots
     are scanned. Priority order: the agent's own ``<bundle>/skills/`` before
     host-installed ``<home>/.codex/skills/`` (a bundled skill shadows a host
-    skill of the same name). Only existing directories are returned.
+    skill of the same name), then the vendor-neutral shared tree
+    ``<home>/.agents/skills/`` — the directory the docs promise reaches
+    "every agent", symlinked into the session like the other sources so a
+    codex-native session actually picks it up (#5105). Only existing
+    directories are returned.
 
     :param bundle_dir: Materialized agent-bundle root, or ``None``.
     :param home: The user home directory (``Path.home()``); injected so
@@ -459,6 +463,9 @@ def codex_skill_sources(bundle_dir: Path | None, home: Path) -> list[Path]:
     host = home / ".codex" / "skills"
     if host.is_dir():
         sources.append(host)
+    shared = home / ".agents" / "skills"
+    if shared.is_dir():
+        sources.append(shared)
     return sources
 
 
